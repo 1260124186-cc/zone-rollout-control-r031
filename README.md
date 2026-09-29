@@ -45,6 +45,7 @@ internal/fleet              解析节点档案服务
 internal/allocation         节点选择和租约生命周期
 internal/probe              探针登记、幂等重放和租约完成
 internal/assessment         一致性聚合和最新结果查询
+internal/revisiondiff       只读的不可变区域版本差异计算
 internal/httpapi            HTTP 路由、中间件和响应映射
 internal/workflowprobe      真实 HTTP 路径验证
 ```
@@ -91,6 +92,15 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/revisions \
     ]
   }'
 ```
+
+只读比较同一计划中的两个不可变版本：
+
+```bash
+curl -sS \
+  'http://127.0.0.1:8090/v1/plans/<plan_id>/revision-diff?from_revision_id=<from_revision_id>&to_revision_id=<to_revision_id>'
+```
+
+可重复添加 `category`（或使用逗号分隔）只查看指定类别，支持的类别为 `added`、`removed` 和 `value_changed`。
 
 激活计划：
 
@@ -171,6 +181,7 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 | `GET` | `/v1/plans` | 按状态分页查询计划 |
 | `GET` | `/v1/plans/{id}` | 查询计划 |
 | `PATCH` | `/v1/plans/{id}/revisions` | 添加区域版本 |
+| `GET` | `/v1/plans/{id}/revision-diff` | 只读比较两个不可变区域版本 |
 | `PATCH` | `/v1/plans/{id}/activate` | 激活计划 |
 | `PATCH` | `/v1/plans/{id}/complete` | 完成计划 |
 | `PATCH` | `/v1/plans/{id}/leases` | 给节点分配租约 |
@@ -183,6 +194,8 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 
 - 计划按 `draft -> active -> completed` 单向迁移，激活和完成需要匹配版本。
 - 区域版本只在计划草稿状态可追加，序列号严格递增且内容不可变。
+- 版本差异端点为只读 `GET`，不会创建计划、租约或判定；它按规范化后的 `owner + type` 分组，输出固定排序的新增、删除和值变化，以及完整摘要与 SHA-256 身份指纹。
+- 差异查询只能引用路径计划内的两个版本；引用不存在版本或其他计划版本时返回 `not_found`，后续新增版本不会改变已有两个不可变版本的差异解释。
 - A、AAAA、CNAME 条目在写入前规范化并稳定排序，重复条目直接拒绝。
 - 节点按 `ready -> leased -> ready` 变化，隔离节点不会被选中。
 - 一个节点同一时刻最多有一个 `claimed` 租约。
@@ -213,6 +226,7 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 
 ```bash
 go run ./cmd/workflowprobe plan-revision-lifecycle
+go run ./cmd/workflowprobe revision-diff
 go run ./cmd/workflowprobe node-lease-allocation
 go run ./cmd/workflowprobe probe-ingestion
 go run ./cmd/workflowprobe consistency-assessment

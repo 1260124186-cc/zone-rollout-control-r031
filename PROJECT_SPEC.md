@@ -116,6 +116,10 @@ ready --lease--> leased --report--> ready
 - 条目数量范围为 1 到 500。
 - 区域名称、所有者名称和规范名称必须规范化为小写并移除末尾句点。
 - 重复加入完全相同的版本内容返回 `duplicate_revision`。
+- 只读版本差异按规范化后的 `owner + type` 比较两个不可变版本：固定类别为 `added`、`removed` 和 `value_changed`。
+- 差异条目按类别、`owner` 和 `type` 固定排序；摘要给出各类别数量、条目数量和未变化键数量。
+- 每个差异包含两侧版本内容指纹以及完整差异的 SHA-256 身份指纹；类别筛选只改变可见条目，不改变完整摘要和身份指纹。
+- 两个版本必须属于路径中的同一计划；缺失、陈旧或跨计划引用返回 `not_found`，不产生任何写入。
 
 ### 探针幂等
 
@@ -223,7 +227,8 @@ ready --lease--> leased --report--> ready
 | allocation | `internal/allocation` | 节点筛选、幂等分配组和租约生命周期 |
 | probe | `internal/probe` | 探针校验、幂等写入和租约完成 |
 | assessment | `internal/assessment` | 探针聚合和一致性判定 |
-| domain | `internal/domain` | 聚合、值校验、状态迁移和纯计算 |
+| revisiondiff | `internal/revisiondiff` | 不可变区域版本的只读差异、摘要和身份指纹 |
+| domain | `internal/domain` | 聚合、值校验、状态迁移、差异计算和纯计算 |
 | store | `internal/store` | 锁内副本事务和原子 JSON 持久化 |
 | platform | `internal/platform` | 时钟、标识、游标和文件锁 |
 | runtime-probe | `internal/workflowprobe`, `cmd/workflowprobe` | 真实 HTTP 路径验证 |
@@ -253,6 +258,7 @@ ready --lease--> leased --report--> ready
 - `GET /v1/plans`
 - `GET /v1/plans/{id}`
 - `PATCH /v1/plans/{id}/revisions`
+- `GET /v1/plans/{id}/revision-diff?from_revision_id=...&to_revision_id=...&category=...`
 - `PATCH /v1/plans/{id}/activate`
 - `PATCH /v1/plans/{id}/complete`
 - `PATCH /v1/plans/{id}/leases`
@@ -279,8 +285,9 @@ ready --lease--> leased --report--> ready
 `.project-runtime.json` 的 `testing` 固定为 `deferred`，不生成单元测试、夹具或浏览器测试。交付前使用 `cmd/workflowprobe` 启动真实本机服务并在随机端口完成：
 
 1. 计划创建、版本追加、激活、完成和非法重复迁移。
-2. 节点分配、租约唯一性、幂等重放和无可用节点冲突。
-3. 探针首写、同键重放、同键异载荷冲突和释放冲突。
-4. 一致性通过、审核触发、最新结果查询和幂等重放。
+2. 只读版本差异、类别筛选、稳定指纹、跨计划和陈旧引用失败。
+3. 节点分配、租约唯一性、幂等重放和无可用节点冲突。
+4. 探针首写、同键重放、同键异载荷冲突和释放冲突。
+5. 一致性通过、审核触发、最新结果查询和幂等重放。
 
 每条探针使用独立临时目录，不访问外部网络，结束后关闭服务。
