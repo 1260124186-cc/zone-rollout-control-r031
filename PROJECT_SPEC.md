@@ -212,6 +212,23 @@ ready --lease--> leased --report--> ready
 
 失败行为：缺少区域版本、没有探针、请求键冲突或保存失败不会更新计划摘要。
 
+### W5 只读版本差异预览
+
+入口：`GET /v1/plans/{id}/revisions/diff`。
+
+步骤：
+
+1. 校验计划路径以及 `base_revision_id`、`target_revision_id`、可选序列号和差异类别查询参数。
+2. 差异服务在单个只读事务中读取计划和两个版本，不创建或修改任何聚合。
+3. 校验两个版本都存在且 `plan_id` 等于路径计划；可选序列号不匹配时判定为陈旧引用。
+4. 纯领域计算器按规范化的 `(owner, type)` 条目键和值做多集合比较，产出固定排序的新增、删除、值变化条目。
+5. 摘要统计各类别和不变条目数，身份指纹对完整差异集合和双方版本引用做 SHA-256。
+6. 类别筛选只收窄返回条目，不改变摘要和指纹。
+
+成功行为：返回固定排序的差异、稳定摘要和身份指纹，重复请求字节级稳定。
+
+失败行为：计划或版本缺失返回 `not_found`；版本属于其他计划返回 `cross_plan_reference`；可选序列号不匹配返回 `stale_reference`；非法类别或序列号参数返回 `validation_failed`。任何失败都不修改状态，也不创建租约、探针或判定。版本内容不可变，因此后续版本追加或快照替换都不会追溯改写已生成预览的解释。
+
 ## 6. 模块边界
 
 | 模块 | 路径 | 责任 |
@@ -223,7 +240,8 @@ ready --lease--> leased --report--> ready
 | allocation | `internal/allocation` | 节点筛选、幂等分配组和租约生命周期 |
 | probe | `internal/probe` | 探针校验、幂等写入和租约完成 |
 | assessment | `internal/assessment` | 探针聚合和一致性判定 |
-| domain | `internal/domain` | 聚合、值校验、状态迁移和纯计算 |
+| revisiondiff | `internal/revisiondiff` | 只读版本差异预览、类别筛选和身份指纹 |
+| domain | `internal/domain` | 聚合、值校验、状态迁移、纯计算和规范化差异 |
 | store | `internal/store` | 锁内副本事务和原子 JSON 持久化 |
 | platform | `internal/platform` | 时钟、标识、游标和文件锁 |
 | runtime-probe | `internal/workflowprobe`, `cmd/workflowprobe` | 真实 HTTP 路径验证 |
@@ -260,6 +278,7 @@ ready --lease--> leased --report--> ready
 - `PATCH /v1/leases/{id}/probes`
 - `PATCH /v1/plans/{id}/assessments`
 - `GET /v1/plans/{id}/assessments/latest`
+- `GET /v1/plans/{id}/revisions/diff`
 
 ## 8. 工程机制
 
@@ -282,5 +301,6 @@ ready --lease--> leased --report--> ready
 2. 节点分配、租约唯一性、幂等重放和无可用节点冲突。
 3. 探针首写、同键重放、同键异载荷冲突和释放冲突。
 4. 一致性通过、审核触发、最新结果查询和幂等重放。
+5. 版本差异固定排序、摘要与指纹稳定、类别筛选、陈旧引用和跨计划引用失败。
 
 每条探针使用独立临时目录，不访问外部网络，结束后关闭服务。

@@ -45,6 +45,7 @@ internal/fleet              解析节点档案服务
 internal/allocation         节点选择和租约生命周期
 internal/probe              探针登记、幂等重放和租约完成
 internal/assessment         一致性聚合和最新结果查询
+internal/revisiondiff       只读区域版本差异预览、分类筛选和身份指纹
 internal/httpapi            HTTP 路由、中间件和响应映射
 internal/workflowprobe      真实 HTTP 路径验证
 ```
@@ -178,6 +179,23 @@ curl -sS -X PATCH http://127.0.0.1:8090/v1/plans/<plan_id>/assessments \
 | `PATCH` | `/v1/leases/{id}/probes` | 登记探针并完成租约 |
 | `PATCH` | `/v1/plans/{id}/assessments` | 创建一致性判定 |
 | `GET` | `/v1/plans/{id}/assessments/latest` | 查询最近判定 |
+| `GET` | `/v1/plans/{id}/revisions/diff` | 只读预览同一计划两个不可变版本的差异 |
+
+### 版本差异预览
+
+`GET /v1/plans/{id}/revisions/diff` 是纯只读接口，不会创建计划、租约、探针或判定，也不会推进计划版本。它在同一个读事务中取出同一计划内的两个不可变区域版本，按规范化条目比较，并以固定排序输出差异。
+
+查询参数：
+
+- `base_revision_id`、`target_revision_id`（必填）：被比较的两个版本，方向为 `base -> target`。
+- `base_serial`、`target_serial`（可选）：调用方记录的序列号。与版本实际序列号不一致时返回 `stale_reference`，防止基于陈旧认知切换。
+- `category`（可选）：`added`、`removed` 或 `changed`，只返回对应类别的差异；不传时返回全部。
+
+响应给出固定排序的 `entries`、统计新增/删除/值变化/不变的 `summary`、双方版本引用，以及始终覆盖完整差异集合的 SHA-256 `fingerprint`。分类筛选只收窄返回条目，不改变摘要和指纹。跨计划引用返回 `cross_plan_reference`，缺失计划或版本返回 `not_found`，非法序列号参数返回 `validation_failed`。重复请求字节级稳定；由于版本内容不可变，后续版本或快照变化不会改写已生成预览的解释或指纹。
+
+```bash
+curl -sS 'http://127.0.0.1:8090/v1/plans/<plan_id>/revisions/diff?base_revision_id=<rev_a>&target_revision_id=<rev_b>&category=changed'
+```
 
 ## 状态及失败行为
 
@@ -216,6 +234,7 @@ go run ./cmd/workflowprobe plan-revision-lifecycle
 go run ./cmd/workflowprobe node-lease-allocation
 go run ./cmd/workflowprobe probe-ingestion
 go run ./cmd/workflowprobe consistency-assessment
+go run ./cmd/workflowprobe revision-diff-preview
 ```
 
 探针不访问外部网络，也不依赖已有状态文件。

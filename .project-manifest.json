@@ -39,6 +39,11 @@
       "responsibility": "probe aggregation, deterministic verdicts, and latest result reads"
     },
     {
+      "id": "revisiondiff",
+      "path": "internal/revisiondiff",
+      "responsibility": "read-only immutable revision diff previews, category filtering, and identity fingerprints"
+    },
+    {
       "id": "domain",
       "path": "internal/domain",
       "responsibility": "entities, DNS value validation, transitions, and stable errors"
@@ -151,6 +156,27 @@
         "httpapi",
         "assessment",
         "probe",
+        "domain",
+        "storage"
+      ]
+    },
+    {
+      "id": "revision-diff-preview",
+      "name": "Read-only revision diff preview",
+      "entry": "GET /v1/plans/{id}/revisions/diff",
+      "steps": [
+        "resolve two immutable revisions in one read transaction without mutating state",
+        "compare normalized entries as multisets and emit a fixed ordering",
+        "produce a summary and a SHA-256 fingerprint over the complete change set",
+        "optionally narrow entries by added, removed, or changed category",
+        "reject missing, stale serial, and cross-plan references explicitly"
+      ],
+      "success": "identical requests reproduce byte-for-byte with a stable fingerprint that later revisions never rewrite",
+      "failure": "missing entities return not_found, stale serials return stale_reference, and other-plan revisions return cross_plan_reference without any state change",
+      "verification": "workflowprobe revision-diff-preview checks ordering, summary, fingerprint stability across filters and later revisions, and every reference failure",
+      "module_ids": [
+        "httpapi",
+        "revisiondiff",
         "domain",
         "storage"
       ]
